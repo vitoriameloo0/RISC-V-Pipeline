@@ -1,0 +1,57 @@
+/* Vitória Melo */
+package base;
+
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import pipeline.Pipeline;
+
+public class Main {
+	public static Pipeline pipeline = new Pipeline();
+
+
+	public static void main(String[] args) {
+		pipeline.inicializarVetores();
+		int ciclo = 0;
+
+		List<Instruction> lista_instrucoes = Arrays.asList(
+				new Instruction("I", 19, 3, 0, 4, 0, 0, 55), 	// addi x4, x3,55
+				new Instruction("R", 51, 3, 1, 5, 0, 0, 0),		// add x5, x3, x1
+				new Instruction("R", 51, 3, 1, 9, 0, 32, 0), 	// sub x9, x3, x1
+				new Instruction("I", 3, 16, 0, 10, 0, 0, 20), 	// lw x10, 20 (x16)
+				new Instruction("S", 35, 5, 24, 0, 0, 0, 10) 	// sw x5, 10(x4)
+		);
+
+		// Loop que vai processar todas as instruções até que todas já tenham acabado o
+		// seu processamento
+		while (pipeline.getPc() / 4 < lista_instrucoes.size() || pipeline.estaExecutando()) {
+			System.out.println("--------------------- CICLO " + ciclo + " ---------------------" + "\n");
+
+			pipeline.WB();
+			pipeline.MEM();
+			pipeline.EX();
+			pipeline.ID();
+			pipeline.IF(lista_instrucoes);
+			pipeline.atualizarRegistradoresPipeline();
+
+			ciclo++;
+
+			System.out.println("Proximo Ciclo ...");
+
+			try {
+				while (System.in.read() != '\n')
+					; // Espera até o usuário pressionar Enter
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		
+		System.out.println("---- Novos valores do Vetor de Registradores ----");
+		pipeline.imprimirRegistradores(pipeline.getRegistradores());
+		System.out.println("");
+		
+		System.out.println("---- Novos valores do Vetor da Memoria ----");
+		pipeline.imprimirMemoria(pipeline.getMemoria());
+
+	}
+}
