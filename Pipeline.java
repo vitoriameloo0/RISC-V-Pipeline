@@ -1,149 +1,277 @@
 package pipeline;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-import modelo.Instruction;
+import base.Instruction;
 
 public class Pipeline {
-	static int[] registradores = new int [32];
-	static Map <Integer, Integer> memoria = new HashMap<>();
-	static int pc = 0;
+	public int[] memoria = new int[32];
+	public int[] registradores = new int[32];
+	public int pc = 0;
+
+	static RegistradorPipeline ifID = new RegistradorPipeline();
+	static RegistradorPipeline idEx = new RegistradorPipeline();
+	static RegistradorPipeline exMem = new RegistradorPipeline();
+	static RegistradorPipeline memWb = new RegistradorPipeline();
+	static RegistradorPipeline regAUX = new RegistradorPipeline();
 	
-	static RegistradorPipeline ifID= new RegistradorPipeline();
-	static RegistradorPipeline idEx= new RegistradorPipeline();
-	static RegistradorPipeline exMem= new RegistradorPipeline();
-	static RegistradorPipeline memWb= new RegistradorPipeline();
+	static RegistradorPipeline ifIDAUX = new RegistradorPipeline();
+	static RegistradorPipeline idExAUX = new RegistradorPipeline();
+	static RegistradorPipeline exMemAUX = new RegistradorPipeline();
+	static RegistradorPipeline memWbAUX = new RegistradorPipeline();
 	
-	public static void main(String [] args) {
-		// Onde definir as intrucoes que serao processadas no pipeline
-		// (tipo, opcode, rs1, rs2, rd, func3, func7, imm)
-		List<Instruction> lista_instrucoes = Arrays.asList(
-				new Instruction("R", 51, 1, 2, 3, 0, 32, 0), 	// add  x3, x1, x2
-				new Instruction("I", 19, 1, 0, 4, 0, 0, 100),	// addi x4, x1, 100
-				new Instruction("S", 35, 4, 5, 0, 0, 0, 16),	// sw 	x5, 16(x4)
-				new Instruction("B", 99, 1, 2, 0, 0, 0, 4),		// beq	x1, x2, 4
-				new Instruction("I", 3, 6, 0, 7, 0, 0, 20));	// lw 	x7, 20(x6)
-		
-		int ciclo = 0;
-		// Loop que vai processar todas as instruções ate que todas ja tenham acabado o seu processamento
-		while (pc / 4 < lista_instrucoes.size() || estaExecutando()) {
-			System.out.println("CICLO: " + ciclo + "\n");
-			WB();
-			MEM();
-			EX();
-			ID();
-			IF(lista_instrucoes);
-			ciclo ++;
-			System.out.println("********************");
+	// Função para o Main poder acessar os valores da memoria
+	// Entrada: Nenhuma
+	// Saida: Valor referente a posicao na memoria
+	public int[] getMemoria() {
+		return memoria;
+	}
+
+	// Função para o Main poder acessar os valores dos registradores
+	// Entrada: Nenhuma
+	// Saida: Valor referente a posicao no registrador
+	public int[] getRegistradores() {
+		return registradores;
+	}
+	
+	// Função para o Main poder acessar o valor do PC
+	// Entrada: Nenhuma
+	// Saida: Valor referente ao PC
+	public int getPc() {
+		return pc;
+	}
+	
+	// Função pra inicializar os registradores e vetores com 1
+	// Entrada: Nenhuma
+	// Saida: Nenhuma
+	public void inicializarVetores() {
+		for(int i = 0; i < 32; i++) {
+			registradores[i] = 1;
+			memoria[i] = 0;
 		}
 	}
 	
+	// Função pra imprimir todas as posições do registrador
+	// Entrada: Vetor de registradores
+	// Saida: Nenhuma
+	public void imprimirRegistradores(int [] registradores) {
+		int i, j;
+		for (i = 0, j = 16; i < 16 && j < 32; i++, j++) {
+			System.out.println("registrador[" + i + "] = " + registradores[i]+ "    " + "registradores[" + j + "] = " + registradores[j]);
+		}
+	}
 	
-	static boolean estaExecutando() { // funcao pra verificar se em algum dos estados esta com alguma instrucao sendo executada 
+	// Função pra imprimir todas as posições da memoria
+	// Entrada: Vetor da memoria
+	// Saida: Nenhuma
+	public void imprimirMemoria(int [] memoria) {
+		int i, j;
+		for (i = 0, j = 16; i < 16 && j < 32; i++, j++) {
+			System.out.println("memoria[" + i + "] = " + memoria[i] + "    " + "memoria[" + j + "] = " + memoria[j]);
+		}
+	}
+	
+	// Funcao necessaria para ir atualizando os vamos dos registradores do pipeline, para que as instruções possam trafegar entre as funções
+	// Entrada: Nenhuma
+	// Saida: Nenhuma
+	public void atualizarRegistradoresPipeline() {
+		ifID = ifIDAUX;
+		idEx = idExAUX;
+		exMem = exMemAUX;
+		memWb = memWbAUX;
+		
+		ifIDAUX =  new RegistradorPipeline();
+		idExAUX =  new RegistradorPipeline();
+		exMemAUX = new RegistradorPipeline();
+		memWbAUX = new RegistradorPipeline();
+	}
+	
+	// Função para verificar se em algum dos estados está com alguma instrução sendo executada
+	// Entrada: Nenhuma
+	// Saida: retorna 1 se ainda tiver instrução executando e 0 caso contrario
+	public boolean estaExecutando() { 
 		return ifID.instruction != null || idEx.instruction != null ||
 				exMem.instruction != null || memWb.instruction != null;
 	}
-	
-	
-	// Estagio IF
-	static void IF (List<Instruction> lista_instrucoes) {
-		if(pc / 4 < lista_instrucoes.size()) {
-			ifID.instruction = lista_instrucoes.get(pc/4);
-			ifID.pc = pc;
-			pc += 4;
+
+	// Estágio IF
+	// Função inicial no pipeline que vai receber a instrucao e atualizar o valor de PC
+	// Entrada: A lista de instruções que serão lidas
+	// Saida: Nenhuma
+	public void IF(List<Instruction> lista_instrucoes) {
+		if (pc / 4 < lista_instrucoes.size()) {
+			ifIDAUX.instruction = lista_instrucoes.get(pc / 4);
+			ifIDAUX.pc = pc;
+			pc +=4;
+			
 		}
-		ifID.imprimirConteudo("IF");
+		ifIDAUX.imprimirIF("IF");
 	}
-	
-	
-	// Estagio ID
-	static void ID () {
-		idEx.instruction = ifID.instruction;
-		idEx.pc = ifID.pc;
+
+	// Estágio ID 
+	// Recebida a instrução do ciclo anterior, ele decodifica e ativa os sinais de controle referente
+	// Entrada: Nenhuma
+	// Saida: Nenhuma
+	public void ID() {
+		// Recebe a instrução do ciclo anterior
+		idExAUX.instruction = ifID.instruction;
+		idExAUX.pc = ifID.pc;
 		
-		if(idEx.instruction != null) {
+		if (idExAUX.instruction != null) {
+			idExAUX.readData1 = registradores[idExAUX.instruction.getRs1()];
+			idExAUX.readData2 = registradores[idExAUX.instruction.getRs2()];
 			
-			if(idEx.instruction.getType().equals("R")) {
-				idEx.sinaisControle.put("RegWrite", 1);
-				idEx.sinaisControle.put("ALUOp", 2);
+			if (idExAUX.instruction.getOpcode() == 51) { 		//TIPO-R -> add, sub, and e or
+				idExAUX.sinaisControle.put("RegWrite", 1);
+				idExAUX.sinaisControle.put("ALUOp", 2);  		// Para fazer soma ou subtracao
+				idExAUX.sinaisControle.put("ALUsrc", 0);
+				idExAUX.sinaisControle.put("MemtoReg", 1); 
+			} 
+			else if (idExAUX.instruction.getOpcode() == 19) { 	// TIPO-I  -> addi
+				idExAUX.sinaisControle.put("RegWrite", 1);
+				idExAUX.sinaisControle.put("ALUOp", 1); 
+				idExAUX.sinaisControle.put("ALUsrc", 1);
+				idExAUX.sinaisControle.put("MemtoReg", 0); 
+				
+			} else if (idExAUX.instruction.getOpcode() == 35) { // TIPO-S  -> sw
+				idExAUX.sinaisControle.put("MemWrite", 1);
+				idExAUX.sinaisControle.put("ALUOp", 1);
+				idExAUX.sinaisControle.put("ALUsrc", 1);
+				idExAUX.sinaisControle.put("MemtoReg", 0);
+				
+			} else if (idExAUX.instruction.getOpcode() == 99) { // TIPO-B  -> beq
+				idExAUX.sinaisControle.put("RegWrite", 0);
+				idExAUX.sinaisControle.put("Branch", 1);
+				idExAUX.sinaisControle.put("ALUOp", 3);
+				idExAUX.sinaisControle.put("ALUsrc", 0);
+				idExAUX.sinaisControle.put("MemtoReg", 0);
+				
+			} else if (idExAUX.instruction.getOpcode() == 3) { // TIPO-I  -> lw
+				idExAUX.sinaisControle.put("RegWrite", 1);
+				idExAUX.sinaisControle.put("ALUOp", 1);
+				idExAUX.sinaisControle.put("ALUsrc", 1);
+				idExAUX.sinaisControle.put("MemRead", 1); 
+				idExAUX.sinaisControle.put("MemtoReg", 1);
 			}
 			
-			else if(idEx.instruction.getType().equals("I")) {
-				idEx.sinaisControle.put("RegWrite", 1);
-				idEx.sinaisControle.put("ALUOp", 1);
-			}
-			else if(idEx.instruction.getType().equals("S")) {
-				idEx.sinaisControle.put("MemWrite", 1);
-				idEx.sinaisControle.put("ALUOp", 0);
-			}
-			else if(idEx.instruction.getType().equals("B")) {
-				idEx.sinaisControle.put("Branch", 1);
-				idEx.sinaisControle.put("ALUOp", 3);
-			}
 		}
 		ifID.instruction = null;
-		idEx.imprimirConteudo("ID");
-	}
-	
-	// Estagio EX
-	static void EX () {
-		exMem.instruction = idEx.instruction;
-		exMem.pc = idEx.pc;
-		exMem.sinaisControle = idEx.sinaisControle;
+		idExAUX.imprimirID("ID");
 		
-		if (exMem.instruction != null) {
-            if (exMem.sinaisControle.get("ALUOp") == 2) {
-                exMem.aluResult = registradores[exMem.instruction.getRs1()] + registradores[exMem.instruction.getRs2()];
-            } 
-            else if (exMem.sinaisControle.get("ALUOp") == 1) {
-                exMem.aluResult = registradores[exMem.instruction.getRs1()] + exMem.instruction.getImm();
-            }             
-            else if (exMem.sinaisControle.get("ALUOp") == 3) {
-                exMem.aluResult = (registradores[exMem.instruction.getRs1()] == registradores[exMem.instruction.getRs2()]) ? 1 : 0;                
-                if (exMem.aluResult == 1) {
-                    pc = exMem.pc + exMem.instruction.getImm();
-                    // Clear pipeline registers to simulate pipeline flush
-                    ifID.instruction = null;
-                    idEx.instruction = null;
-                    exMem.instruction = null;
-                }
-            }
-        }
+	}
+
+	// Estágio EX
+	// Recebida a instrução do ciclo anterior, ele executa os calculos necessarios de acordo com seu tipo
+	// Entrada: Nenhuma
+	// Saida: Nenhuma
+	public void EX() {
+		// Recebe a instrução do ciclo anterior
+		exMemAUX.instruction = idEx.instruction;
+		exMemAUX.pc = idEx.pc;
+		exMemAUX.sinaisControle = idEx.sinaisControle;
+		exMemAUX.readData1 = idEx.readData1;
+	    exMemAUX.readData2 = idEx.readData2;
+
+		if (exMemAUX.instruction != null) {
+			if (exMemAUX.sinaisControle.get("ALUOp") == 2) { //TIPO-R
+				if(exMemAUX.instruction.getFunc3() == 0 && exMemAUX.instruction.getFunc7() == 0) { //caso de soma
+					exMemAUX.aluResult = registradores[exMemAUX.instruction.getRs1()] + registradores[exMemAUX.instruction.getRs2()];					
+				}else if(exMemAUX.instruction.getFunc3() == 0 && exMemAUX.instruction.getFunc7() == 32){ // caso de subtracao
+					exMemAUX.aluResult = exMemAUX.readData1 - exMemAUX.readData2;		
+				}
+			} 
+			
+			else if (exMemAUX.sinaisControle.get("ALUOp") == 1) { // TIPO-I e TIPO-S
+				exMemAUX.aluResult = registradores[exMemAUX.instruction.getRs1()]  + exMemAUX.instruction.getImm();
+			} 
+			
+			else if (exMemAUX.sinaisControle.get("ALUOp") == 3) {  // TIPO-B
+				exMemAUX.aluResult = (registradores[exMemAUX.instruction.getRs1()] == registradores[exMemAUX.instruction.getRs2()]) ? 1 : 0;
+				if (exMemAUX.aluResult == 1) {
+					pc = exMemAUX.pc + exMemAUX.instruction.getImm();
+					ifID.instruction = null;
+					idEx.instruction = null;
+					exMem.instruction = null;
+				}
+			} 	
+		}
 		idEx.instruction = null;
-		exMem.imprimirConteudo("EX");
+		exMemAUX.imprimirEX("EX");
 	}
-	
-	// Estagio MEM
-	static void MEM() {
-		memWb.instruction = exMem.instruction;
-		memWb.pc = exMem.pc;
-		memWb.sinaisControle = exMem.sinaisControle;
-		memWb.aluResult = exMem.aluResult;
+
+	// Estágio MEM
+	// Recebida a instrução do ciclo anterior, Le, escreve ou não faz nada dependendo seu tipo
+	// Entrada: Nenhuma
+	// Saida: Nenhuma
+	public void MEM() {
+		// Recebe a instrução do ciclo anterior
+		memWbAUX.instruction = exMem.instruction;
+		memWbAUX.pc = exMem.pc;
+		memWbAUX.sinaisControle = exMem.sinaisControle;
+		memWbAUX.aluResult = exMem.aluResult;
 		
-		if (memWb.instruction != null) {
-			if(memWb.sinaisControle.get("MemWrite") != null && memWb.sinaisControle.get("MemWrite") == 1) {
-				memoria.put(memWb.aluResult, registradores[memWb.instruction.getRs2()]);
+		if (memWbAUX.instruction != null) {
+			
+			if (memWbAUX.sinaisControle.get("MemWrite") != null && memWbAUX.sinaisControle.get("MemWrite") == 1) {
+				int rs2 = memWbAUX.instruction.getRs2();
+				System.out.println("Posicao a ser escrita na memoria: " + memWbAUX.aluResult);
+				if (memWbAUX.aluResult >= 0 && memWbAUX.aluResult < memoria.length) {
+					memoria[memWbAUX.aluResult] = registradores[rs2];
+				} else {
+					System.out.println("Erro: Índice " + memWbAUX.aluResult + " está fora dos limites do array memória.");
+				}
 			}
 			
-			if(memWb.sinaisControle.get("MemRead") != null && memWb.sinaisControle.get("MemRead") == 1) {
-				memWb.memoryData = memoria.get(memWb.aluResult);
+			if (memWbAUX.sinaisControle.get("MemRead") != null && memWbAUX.sinaisControle.get("MemRead") == 1) {
+				System.out.println("Posicao a ser lida na memoria: " + memWbAUX.aluResult);
+				if (memWbAUX.aluResult >= 0 && memWbAUX.aluResult < memoria.length) {
+					memWbAUX.aluResult = memoria[memWbAUX.aluResult];
+	
+				} else {
+					System.out.println("Erro: Índice " + memWbAUX.aluResult + " está fora dos limites do array memória.");
+				}
 			}
 		}
+		
+		imprimirMemoria(memoria);
+		System.out.println();
 		exMem.instruction = null;
-		memWb.imprimirConteudo("MEM");	
+		memWbAUX.imprimirMEM("MEM");
 	}
 	
-	// Estagio WB
-	static void WB() {
-		if(memWb.instruction != null && memWb.sinaisControle.get("RegWrite") != null) {
-			registradores[memWb.instruction.getRd()] = memWb.aluResult;
+	// Estágio WB
+	// Recebida a instrução do ciclo anterior, escreve os valores calculos na posicao indicada no registrador
+	// Entrada: Nenhuma
+	// Saida: Nenhuma
+	public void WB() {
+		// Recebe as instruções do ciclo anterior
+		regAUX.instruction = memWb.instruction;
+		regAUX.sinaisControle = memWb.sinaisControle;
+		regAUX.aluResult = memWb.aluResult;
+		
+		if(regAUX.instruction != null) { 
+			// Se for do tipo R escreve na memoria o resultado da ULA
+			if(regAUX.instruction.getType() == "R" && regAUX.instruction.getOpcode()== 51) {
+				int rd = regAUX.instruction.getRd();
+				registradores[rd] = regAUX.aluResult;
+			}
+			// Se for do tipo I (addi) escreve na memoria o resultado da ULA
+			else if(regAUX.instruction.getType() == "I" && regAUX.instruction.getOpcode() == 19) { 
+				int rd = regAUX.instruction.getRd();
+				registradores[rd] = regAUX.aluResult;
+			}
+			// Se for do tipo R (lw) escreve na memoria o resultado da ULA
+			else if(regAUX.instruction.getType() == "I" && regAUX.instruction.getOpcode() == 3) {
+				int rd = regAUX.instruction.getRd();
+				registradores[rd] = regAUX.aluResult;
+			}	
 		}
+		
+		imprimirRegistradores(registradores);
+		System.out.println();
+		regAUX.imprimirWB("WB");
 		memWb.instruction = null;
-		memWb.imprimirConteudo("WB");
+		regAUX.instruction = null;
 	}
+	
 }
-
-
